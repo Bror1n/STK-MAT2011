@@ -69,11 +69,16 @@ code(r"""
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.special import expit
-from scipy.optimize import minimize
 import statsmodels.api as sm
 from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
+
+# Shared corrected-MLE machinery.  The same neg_logL, grad_L, numeric_hess
+# accept eps and delta either as scalars (Sections 2-5 of the report) or
+# as length-n arrays (this section, where the flip rate depends on x_i).
+from helper_functions.corrected_mle import (
+    SEED, H, neg_logL, grad_L, fit_naive, fit_corr, flip_labels, numeric_hess,
+)
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -81,63 +86,7 @@ warnings.filterwarnings("ignore")
 plt.rcParams["figure.dpi"] = 110
 plt.rcParams["savefig.bbox"] = "tight"
 
-SEED = 2026
 rng_global = np.random.default_rng(SEED)
-
-
-def H(u): return expit(u)
-
-
-# Same neg_logL / grad_L as before, but eps and delta can now be ARRAYS
-# of shape (n,). The vectorised arithmetic already supports that.
-def neg_logL(theta, Xd, yh, eps, delta):
-    eta = Xd @ theta
-    p = H(eta)
-    a = 1.0 - eps - delta                    # per-observation a_i
-    q = np.clip(delta + a * p, 1e-12, 1 - 1e-12)
-    return -np.sum(yh * np.log(q) + (1 - yh) * np.log(1 - q))
-
-
-def grad_L(theta, Xd, yh, eps, delta):
-    eta = Xd @ theta
-    p = H(eta)
-    a = 1.0 - eps - delta
-    q = np.clip(delta + a * p, 1e-12, 1 - 1e-12)
-    w = a * p * (1.0 - p)                    # per-observation weight
-    r = (yh - q) / (q * (1.0 - q))
-    return -Xd.T @ (r * w)
-
-
-def fit_corr(X, yh, eps, delta, start, bound=20.0):
-    Xd = sm.add_constant(X, has_constant="add")
-    bnds = [(-bound, bound)] * len(start)
-    res = minimize(
-        neg_logL, x0=start, args=(Xd, yh, eps, delta),
-        jac=grad_L, method="L-BFGS-B", bounds=bnds,
-        options={"ftol": 1e-12, "gtol": 1e-9, "maxiter": 2000},
-    )
-    return res
-
-
-def fit_naive(X, y):
-    Xd = sm.add_constant(X, has_constant="add")
-    res = sm.GLM(y, Xd, family=sm.families.Binomial()).fit(disp=0)
-    return np.asarray(res.params), np.asarray(res.bse), np.asarray(res.pvalues)
-
-
-def numeric_hess(theta, Xd, yh, eps, delta, h=1e-4):
-    d = len(theta)
-    Hm = np.zeros((d, d))
-    f = lambda t: neg_logL(t, Xd, yh, eps, delta)
-    for i in range(d):
-        for j in range(i, d):
-            tp = theta.copy(); tp[i] += h; tp[j] += h
-            tm = theta.copy(); tm[i] -= h; tm[j] -= h
-            tpm = theta.copy(); tpm[i] += h; tpm[j] -= h
-            tmp = theta.copy(); tmp[i] -= h; tmp[j] += h
-            v = (f(tp) - f(tpm) - f(tmp) + f(tm)) / (4 * h * h)
-            Hm[i, j] = v; Hm[j, i] = v
-    return Hm
 """)
 
 # ============================================================================
@@ -456,7 +405,7 @@ compare to the labels we started from (taken as the gold standard).
 """)
 
 code(r"""
-data = fetch_openml("credit-g", version=1, as_frame=True)
+data = fetch_openml(data_id=31, as_frame=True)   # German Credit; pinned ID for reproducibility
 df = data.data
 y_str = data.target
 

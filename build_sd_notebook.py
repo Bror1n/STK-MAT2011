@@ -60,58 +60,20 @@ md("## 1. Setup")
 code(r"""
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.special import expit
-from scipy.optimize import minimize
 import statsmodels.api as sm
 from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
+
+# Shared corrected-MLE machinery.  SEED = 6114 is set inside the module.
+from helper_functions.corrected_mle import (
+    SEED, H, neg_logL, grad_L, fit_corr, fit_naive, flip_labels, numeric_hess,
+)
 
 import warnings
 warnings.filterwarnings("ignore")
 
 plt.rcParams["figure.dpi"] = 110
 plt.rcParams["savefig.bbox"] = "tight"
-
-SEED = 2026
-
-
-def H(u): return expit(u)
-
-
-def flip_labels(y, eps, rng):
-    flip = rng.uniform(size=len(y)) < eps
-    yh = y.copy()
-    yh[flip] = 1 - yh[flip]
-    return yh
-
-
-def neg_logL(theta, Xd, yh, eps, delta):
-    eta = Xd @ theta
-    p = H(eta)
-    c = 1.0 - eps - delta
-    q = np.clip(delta + c * p, 1e-12, 1 - 1e-12)
-    return -np.sum(yh * np.log(q) + (1 - yh) * np.log(1 - q))
-
-
-def grad_L(theta, Xd, yh, eps, delta):
-    eta = Xd @ theta
-    p = H(eta)
-    c = 1.0 - eps - delta
-    q = np.clip(delta + c * p, 1e-12, 1 - 1e-12)
-    w = c * p * (1.0 - p)
-    r = (yh - q) / (q * (1.0 - q))
-    return -Xd.T @ (r * w)
-
-
-def fit_corr(X, yh, eps, delta, start, bound=15.0):
-    Xd = sm.add_constant(X, has_constant="add")
-    bnds = [(-bound, bound)] * len(start)
-    res = minimize(
-        neg_logL, x0=start, args=(Xd, yh, eps, delta),
-        jac=grad_L, method="L-BFGS-B", bounds=bnds,
-        options={"ftol": 1e-12, "gtol": 1e-9, "maxiter": 2000},
-    )
-    return res
 """)
 
 # ============================================================================
@@ -243,7 +205,7 @@ for k, eps in enumerate(eps_grid):
     for b in range(B_mc):
         rng_b = np.random.default_rng(SEED + 100_000 * b + k)
         y_b   = rng_b.binomial(1, p_true_X)
-        yh    = flip_labels(y_b, eps, rng_b)
+        yh    = flip_labels(y_b, eps, rng=rng_b)
         Xd = sm.add_constant(X, has_constant="add")
         try:
             naive = sm.GLM(yh, Xd, family=sm.families.Binomial()).fit(disp=0)
@@ -326,51 +288,40 @@ predictors pay even more.
 md("### 3.2  Hessian-based se vs. MC sd")
 
 code(r"""
-# Spot-check whether the Hessian-based se from a single corrected fit
-# tracks the MC sd. We compute the Hessian only on the *first* replicate of
-# each eps to keep this cheap; then compare to the MC sd we already have.
+# Proper comparison: at each MC replicate evaluate the Hessian at *that*
+# replicate's MLE on *that* replicate's data, then average the resulting
+# Hessian-based standard errors across replicates.  This is the quantity an
+# applied user reads off a single fit, so it is the right thing to compare
+# to the MC sd of beta_hat across replicates.
 
-def numeric_hess_loglik(theta, Xd, yh, eps, delta, h=1e-4):
-    d = len(theta)
-    Hm = np.zeros((d, d))
-    f = lambda t: neg_logL(t, Xd, yh, eps, delta)
-    for i in range(d):
-        for j in range(i, d):
-            tp = theta.copy(); tp[i] += h; tp[j] += h
-            tm = theta.copy(); tm[i] -= h; tm[j] -= h
-            tpm = theta.copy(); tpm[i] += h; tpm[j] -= h
-            tmp = theta.copy(); tmp[i] -= h; tmp[j] += h
-            v = (f(tp) - f(tpm) - f(tmp) + f(tm)) / (4 * h * h)
-            Hm[i, j] = v; Hm[j, i] = v
-    return Hm
+hess_se_per_rep = np.full_like(betas_mc, np.nan)
 
-
-hess_se = np.full((len(eps_grid), p + 1), np.nan)
-Xd = sm.add_constant(X, has_constant="add")
 for k, eps in enumerate(eps_grid):
-    rng_b = np.random.default_rng(SEED + k)
-    y_b   = rng_b.binomial(1, p_true_X)
-    yh    = flip_labels(y_b, eps, rng_b)
-    # use the MC mean as the "fit" -- avoids re-running the optimizer
-    theta_hat = mc_mean_mat[k]
-    if np.any(np.isnan(theta_hat)):
-        continue
-    Jh = numeric_hess_loglik(theta_hat, Xd, yh, eps, eps)
-    try:
-        cov = np.linalg.inv(Jh)
-        hess_se[k] = np.sqrt(np.maximum(np.diag(cov), 0.0))
-    except np.linalg.LinAlgError:
-        continue
+    Xd = sm.add_constant(X, has_constant="add")
+    for b in range(B_mc):
+        if np.any(np.isnan(betas_mc[k, b])):
+            continue
+        rng_b = np.random.default_rng(SEED + 100_000 * b + k)
+        y_b   = rng_b.binomial(1, p_true_X)
+        yh    = flip_labels(y_b, eps, rng=rng_b)
+        Jh = numeric_hess(betas_mc[k, b], Xd, yh, eps, eps)
+        try:
+            cov = np.linalg.inv(Jh)
+        except np.linalg.LinAlgError:
+            continue
+        diag = np.diag(cov)
+        hess_se_per_rep[k, b] = np.where(diag > 0, np.sqrt(diag), np.nan)
 
+mean_hess_se = np.nanmean(hess_se_per_rep, axis=1)
 
 fig, ax = plt.subplots(figsize=(8, 4.8))
 for j in range(p):
     sd0 = mc_sd_mat[0, j + 1]
     ax.plot(eps_grid, mc_sd_mat[:, j + 1] / sd0, "o", color=colors[j])
-    ax.plot(eps_grid, hess_se[:, j + 1] / sd0, "-", color=colors[j],
+    ax.plot(eps_grid, mean_hess_se[:, j + 1] / sd0, "-", color=colors[j],
             linewidth=1)
 ax.plot([], [], "ko", label="MC sd / clean sd")
-ax.plot([], [], "k-", label="Hessian se / clean sd")
+ax.plot([], [], "k-", label="mean Hessian se / clean sd")
 ax.plot(eps_grid, inv_c, "--", color="C3", linewidth=2,
         label=r"$1/c$ (theory)")
 ax.set_xlabel(r"$\varepsilon$")
@@ -381,12 +332,14 @@ plt.show()
 """)
 
 md(r"""
-The dots (MC sd, the *truth* of the estimator's variability) and the
-solid lines (Hessian-based se evaluated at the MC mean fit) overlap
-across the whole range. So the observed information $\widehat J^{-1}$ is
-a valid covariance surrogate on identified data: an applied user who
-only fits one corrected model and reads off the Hessian se gets the
-right uncertainty number.
+The dots (Monte-Carlo sd, the truth of the estimator's variability) and the
+solid lines (the mean Hessian-based se where the Hessian is evaluated at
+each replicate's own MLE on that replicate's noisy data) overlap across the
+whole range.  This is the proper Hessian-vs-MC comparison: each replicate
+gives a Hessian-based se from a single fit, and an applied user reading
+$\sqrt{(\widehat J^{-1})_{jj}}$ off one corrected fit lands on the same
+number on average that the Monte-Carlo experiment would produce by brute
+force.
 """)
 
 # ============================================================================
@@ -440,7 +393,7 @@ for k, eps in enumerate(eps_grid_bc):
         idx_b = rng.integers(0, n_tr, size=n_tr)
         Xb = X_tr[idx_b]
         yb = y_tr[idx_b]
-        yh = flip_labels(yb, eps, rng)
+        yh = flip_labels(yb, eps, rng=rng)
         Xd = sm.add_constant(Xb, has_constant="add")
         try:
             naive = sm.GLM(yh, Xd, family=sm.families.Binomial()).fit(disp=0)

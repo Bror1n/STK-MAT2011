@@ -60,11 +60,15 @@ md("## 1. Setup")
 code(r"""
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.special import expit
 from scipy.stats import norm
 import statsmodels.api as sm
 from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
+
+# Shared corrected-MLE machinery; SEED = 6114.
+from helper_functions.corrected_mle import (
+    SEED, H, fit_naive, flip_labels,
+)
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -72,26 +76,7 @@ warnings.filterwarnings("ignore")
 plt.rcParams["figure.dpi"] = 110
 plt.rcParams["savefig.bbox"] = "tight"
 
-SEED = 2026
 rng_global = np.random.default_rng(SEED)
-
-
-def H(u): return expit(u)
-
-
-def fit_naive(X, y):
-    # Standard logistic regression on (X, y), returns (params, se, pvalues).
-    Xd = sm.add_constant(X, has_constant="add")
-    res = sm.GLM(y, Xd, family=sm.families.Binomial()).fit(disp=0)
-    return np.asarray(res.params), np.asarray(res.bse), np.asarray(res.pvalues)
-
-
-def flip_labels(y, eps, rng):
-    # Symmetric label flip: each y_i is flipped with prob eps.
-    flip = rng.uniform(size=len(y)) < eps
-    yh = y.copy()
-    yh[flip] = 1 - yh[flip]
-    return yh
 """)
 
 # ============================================================================
@@ -146,7 +131,7 @@ for b in b_levels:
     y = rng.binomial(1, H(b * x))
     bhat = []
     for eps in eps_grid:
-        yh = flip_labels(y, eps, rng)
+        yh = flip_labels(y, eps, rng=rng)
         params, _, _ = fit_naive(x.reshape(-1, 1), yh)
         bhat.append(params[1])  # slope (params[0] is intercept)
     bhat = np.asarray(bhat)
@@ -194,16 +179,17 @@ n = 4000
 beta_star = np.array([3.0, 2.0, 1.5, 1.0, 0.7, 0.5, 0.3, 0.2, 0.1, 0.0])
 p = len(beta_star)
 
-# Generate one design and one set of true labels; only relabel under noise
-rng = np.random.default_rng(SEED)
-X = rng.standard_normal((n, p))
-y = rng.binomial(1, H(X @ beta_star))
+# Fix the design X once.  At each MC replicate we redraw y from the true
+# logistic model AND apply the eps-flip, so the average is a clean estimate
+# of the population E[beta_hat_naive(eps)] under the joint randomness of
+# (y, flips), not conditional on a single y realisation.
+rng_design = np.random.default_rng(SEED)
+X = rng_design.standard_normal((n, p))
+p_true_X = H(X @ beta_star)
 
 eps_grid = np.linspace(0.0, 0.45, 31)
+B = 80   # MC replicates per eps
 
-# We average over B flip seeds at each eps to suppress Monte-Carlo noise
-# (with B=1 the slope of log|beta_hat| vs eps is dominated by flip-noise).
-B = 80
 betas = np.zeros((len(eps_grid), p + 1))
 ses   = np.zeros_like(betas)
 pvals = np.zeros_like(betas)
@@ -213,7 +199,9 @@ for k, eps in enumerate(eps_grid):
     ss = np.zeros((B, p + 1))
     pp = np.zeros((B, p + 1))
     for b in range(B):
-        yh = flip_labels(y, eps, np.random.default_rng(SEED + 10000 * b + k))
+        rng_b = np.random.default_rng(SEED + 10_000 * b + k)
+        y_b   = rng_b.binomial(1, p_true_X)
+        yh    = flip_labels(y_b, eps, rng=rng_b)
         params, se, pv = fit_naive(X, yh)
         bb[b] = params
         ss[b] = se
@@ -614,7 +602,7 @@ for k, eps in enumerate(eps_grid_bc):
     ss = np.zeros((n_seeds, p_bc + 1))
     pp = np.zeros((n_seeds, p_bc + 1))
     for s in range(n_seeds):
-        yh = flip_labels(y_tr, eps, np.random.default_rng(SEED + 1000 * s + k))
+        yh = flip_labels(y_tr, eps, rng=np.random.default_rng(SEED + 1000 * s + k))
         params, se, pv = fit_naive(X_bc, yh)
         bb[s] = params
         ss[s] = se

@@ -1,92 +1,61 @@
 """
 Multi-start verification that the bounded L-BFGS-B optimizer for the
-corrected log-likelihood lands at the same stationary point regardless
-of initialization.
+corrected log-likelihood lands at the same critical point regardless of
+initialisation, on two settings:
 
-Two settings are checked:
-  (A) the synthetic single-covariate model used in Section 4.2 of the report
-      (a, b) = (0.5, 1.2),  n = 1000,  eps = delta = 0.10
-  (B) the four-predictor breast-cancer data of Section 4.3
-      eps = delta = 0.10
+  (A) the synthetic single-covariate model used in Section 5.2 of the
+      report -- (a, b) = (0.5, 1.2),  n = 1000,  eps = delta = 0.10
+  (B) the four-predictor breast-cancer data of Section 5.3 -- eps = delta = 0.10
 
-For each setting we draw B=200 random starts uniformly on a wide hypercube,
-run bounded L-BFGS-B from each start, and compare the converged points.
+For each setting we draw B = 200 random starts uniformly inside the bound
+B_M (i.e.\ filling the optimisation domain except for a thin tau-collar
+around the boundary) and run bounded L-BFGS-B from each one.
 
 The script writes:
   - figures/fig_multistart.pdf  (the figure cited in the report)
   - prints a small summary table to stdout
+
+Reproducibility
+---------------
+All randomness is seeded from helper_functions.corrected_mle.SEED = 6114.
 """
 
 import os
 import warnings
 
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
+import numpy as np
 import statsmodels.api as sm
-from scipy.optimize import minimize
-from scipy.special import expit
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split
+
+from helper_functions.corrected_mle import (
+    SEED, H, fit_corr, flip_labels,
+)
 
 warnings.filterwarnings("ignore")
 
-# ----- repro ------------------------------------------------------------------
-SEED = 2026
-rng_global = np.random.default_rng(SEED)
 
-# ----- constants --------------------------------------------------------------
+# ----- experiment constants ---------------------------------------------------
 EPS = 0.10
 DELTA = 0.10
-BOUND = 15.0       # same as the breast-cancer setting in the report
-ATOL = 1e-3        # two converged points are 'the same' if max-coordinate gap < this
+TAU = 0.1            # bound-hit tolerance (Definition 3.4 of the report)
+ATOL = 1e-3          # 'same converged point' if max-coordinate gap < this
 
-# ----- model helpers ----------------------------------------------------------
-def H(u): return expit(u)
-
-def neg_logL(theta, Xd, yh, eps, delta):
-    eta = Xd @ theta
-    p = H(eta)
-    c = 1.0 - eps - delta
-    q = np.clip(delta + c * p, 1e-12, 1 - 1e-12)
-    return -np.sum(yh * np.log(q) + (1 - yh) * np.log(1 - q))
-
-def grad_L(theta, Xd, yh, eps, delta):
-    eta = Xd @ theta
-    p = H(eta)
-    c = 1.0 - eps - delta
-    q = np.clip(delta + c * p, 1e-12, 1 - 1e-12)
-    w = c * p * (1.0 - p)
-    r = (yh - q) / (q * (1.0 - q))
-    return -Xd.T @ (r * w)
-
-def fit_corr(start, Xd, yh, eps, delta, bound=BOUND):
-    bnds = [(-bound, bound)] * len(start)
-    return minimize(
-        neg_logL, x0=start, args=(Xd, yh, eps, delta),
-        jac=grad_L, method="L-BFGS-B", bounds=bnds,
-        options={"ftol": 1e-12, "gtol": 1e-9, "maxiter": 2000},
-    )
 
 # ----- Setting A: synthetic single-covariate ---------------------------------
 def make_synth(n=1000, a=0.5, b=1.2, eps=EPS, delta=DELTA, seed=SEED):
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
-    p = H(a + b * x)
-    y = rng.binomial(1, p)
-    yh = y.copy()
-    flip1 = (y == 1) & (rng.uniform(size=n) < eps)
-    flip0 = (y == 0) & (rng.uniform(size=n) < delta)
-    yh[flip1] = 0
-    yh[flip0] = 1
-    Xd = np.column_stack([np.ones(n), x])
-    return Xd, yh
+    y = rng.binomial(1, H(a + b * x))
+    yh = flip_labels(y, eps, delta, rng=rng)
+    X = x.reshape(-1, 1)  # raw design (no intercept)
+    return X, yh
+
 
 # ----- Setting B: breast cancer ----------------------------------------------
 def make_breast(eps=EPS, delta=DELTA, seed=SEED):
-    from sklearn.datasets import load_breast_cancer
-    from sklearn.model_selection import train_test_split
-
     bunch = load_breast_cancer()
-    X_full = bunch.data
     feature_names = bunch.feature_names
 
     keep = [
@@ -96,36 +65,34 @@ def make_breast(eps=EPS, delta=DELTA, seed=SEED):
         "mean concave points",
     ]
     idx = [list(feature_names).index(k) for k in keep]
-    X = X_full[:, idx]
-    y = bunch.target.astype(int)  # benign = 1, matches the negative-coef sign in main.tex
+    X_full = bunch.data[:, idx]
+    y_full = bunch.target.astype(int)  # 1 = benign in sklearn convention
 
     X_train, _, y_train, _ = train_test_split(
-        X, y, test_size=171, random_state=42, stratify=y
+        X_full, y_full,
+        test_size=171, random_state=seed, stratify=y_full,
     )
-    # Standardize on the training set
     mu = X_train.mean(axis=0)
     sd = X_train.std(axis=0, ddof=1)
     X_train = (X_train - mu) / sd
 
-    rng = np.random.default_rng(seed)
-    yh = y_train.copy()
-    flip1 = (y_train == 1) & (rng.uniform(size=len(y_train)) < eps)
-    flip0 = (y_train == 0) & (rng.uniform(size=len(y_train)) < delta)
-    yh[flip1] = 0
-    yh[flip0] = 1
-    Xd = np.column_stack([np.ones(len(y_train)), X_train])
-    return Xd, yh
+    rng = np.random.default_rng(seed + 1)
+    yh = flip_labels(y_train, eps, delta, rng=rng)
+    return X_train, yh
+
 
 # ----- multi-start runner -----------------------------------------------------
-def multistart(Xd, yh, n_starts=200, eps=EPS, delta=DELTA,
-               start_radius=10.0, bound=BOUND, seed=SEED + 7):
+def multistart(X, yh, n_starts, eps, delta, start_radius, bound, seed):
+    """Draw n_starts random initial points uniformly on
+    [-start_radius, +start_radius]^{p+1} and run bounded L-BFGS-B from each.
+    """
     rng = np.random.default_rng(seed)
-    p = Xd.shape[1]
-    starts = rng.uniform(-start_radius, start_radius, size=(n_starts, p))
+    p_param = X.shape[1] + 1  # +1 intercept
+    starts = rng.uniform(-start_radius, start_radius, size=(n_starts, p_param))
     fits = []
     for s in starts:
-        r = fit_corr(s, Xd, yh, eps, delta, bound=bound)
-        on_bound = np.max(np.abs(r.x)) >= bound - 0.1
+        r = fit_corr(X, yh, eps, delta, start=s, bound=bound)
+        on_bound = np.max(np.abs(r.x)) >= bound - TAU
         fits.append({
             "start": s,
             "x": r.x,
@@ -134,6 +101,7 @@ def multistart(Xd, yh, n_starts=200, eps=EPS, delta=DELTA,
             "on_bound": on_bound,
         })
     return fits
+
 
 def summarize(label, fits):
     interior = [f for f in fits if not f["on_bound"] and f["success"]]
@@ -148,7 +116,6 @@ def summarize(label, fits):
     centroid = xs.mean(axis=0)
     max_dev = np.max(np.linalg.norm(xs - centroid, axis=1))
     fun_range = funs.max() - funs.min()
-
     n_at_global = int(np.sum(np.max(np.abs(xs - centroid), axis=1) < ATOL))
 
     print(f"[{label}]")
@@ -159,99 +126,109 @@ def summarize(label, fits):
     print(f"  max ||x - cent||  = {max_dev:.3e}")
     print(f"  range of -loglik  = {fun_range:.3e}")
     print(f"  fits within tol   = {n_at_global} / {n_int}")
-    return {"centroid": centroid, "interior": xs, "fits": fits}
+    return {"centroid": centroid, "interior": xs, "fits": fits,
+            "max_dev": max_dev, "fun_range": fun_range}
+
+
+# ----- Plotting ---------------------------------------------------------------
+def panel(ax, fits, info, j1, j2, xlabel, ylabel, title):
+    starts = np.vstack([f["start"] for f in fits])
+    ends = np.vstack([f["x"] for f in fits])
+    on_bnd = np.array([f["on_bound"] for f in fits])
+
+    # arrows from each random start to the corresponding converged point.
+    for s, e in zip(starts[~on_bnd], ends[~on_bnd]):
+        ax.annotate(
+            "",
+            xy=(e[j1], e[j2]), xytext=(s[j1], s[j2]),
+            arrowprops=dict(arrowstyle="-", color="0.7", lw=0.4, alpha=0.6),
+            zorder=1,
+        )
+    ax.scatter(starts[:, j1], starts[:, j2], s=14, facecolor="none",
+               edgecolor="0.45", linewidth=0.6, zorder=2,
+               label=f"{len(fits)} random starts")
+    if on_bnd.any():
+        ax.scatter(ends[on_bnd, j1], ends[on_bnd, j2],
+                   s=22, marker="x", color="C3", zorder=3,
+                   label=f"{int(on_bnd.sum())} hit bound (filtered)")
+    ends_in = ends[~on_bnd]
+    if len(ends_in) > 0:
+        # tiny jitter so the dots are visible (they all overlap at the centroid)
+        jitter_rng = np.random.default_rng(0)
+        jit = jitter_rng.normal(scale=0.02, size=ends_in.shape)
+        ax.scatter(ends_in[:, j1] + jit[:, j1], ends_in[:, j2] + jit[:, j2],
+                   s=22, color="C0", alpha=0.7, edgecolor="white",
+                   linewidth=0.4, zorder=4,
+                   label=f"{len(ends_in)} converged fits")
+    if info is not None:
+        ax.scatter(info["centroid"][j1], info["centroid"][j2],
+                   s=260, marker="*", color="C1", edgecolor="black",
+                   linewidth=1.0, zorder=5, label="MLE (centroid)")
+        txt = (rf"max $\|\widehat\theta - \bar{{\widehat\theta}}\|$ "
+               rf"= ${info['max_dev']:.1e}$")
+        ax.text(0.02, 0.02, txt, transform=ax.transAxes,
+                fontsize=8, color="black",
+                bbox=dict(facecolor="white", edgecolor="0.6", alpha=0.85,
+                          boxstyle="round,pad=0.3"))
+    ax.axhline(0, color="0.92", linewidth=0.8, zorder=0)
+    ax.axvline(0, color="0.92", linewidth=0.8, zorder=0)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend(loc="upper right", fontsize=7.5, framealpha=0.9, handlelength=1.2)
 
 
 def main():
-    out_dir = os.path.dirname(os.path.abspath(__file__))
-    fig_dir = os.path.join(out_dir, "figures")
+    here = os.path.dirname(os.path.abspath(__file__))
+    fig_dir = os.path.join(here, "figures")
+    project_fig_dir = os.path.normpath(
+        os.path.join(here, "..", "MAT-STK2011-Project", "figures")
+    )
     os.makedirs(fig_dir, exist_ok=True)
 
-    # --- Setting A ---
-    Xa, yha = make_synth()
-    fits_a = multistart(Xa, yha)
-    A = summarize("synthetic (a,b)", fits_a)
+    # --- Setting A: synthetic, bound = 10, starts in [-9, 9]^2 ----------
+    Xa, yha = make_synth(seed=SEED)
+    fits_a = multistart(Xa, yha, n_starts=200, eps=EPS, delta=DELTA,
+                        start_radius=9.0, bound=10.0, seed=SEED + 7)
+    A = summarize("synthetic (a, b)", fits_a)
 
-    # --- Setting B ---
-    Xb, yhb = make_breast()
-    fits_b = multistart(Xb, yhb, start_radius=5.0, bound=BOUND)
+    # --- Setting B: breast cancer, bound = 15, starts in [-13, 13]^5 ----
+    Xb, yhb = make_breast(seed=SEED)
+    fits_b = multistart(Xb, yhb, n_starts=200, eps=EPS, delta=DELTA,
+                        start_radius=13.0, bound=15.0, seed=SEED + 11)
     B = summarize("breast cancer", fits_b)
 
     # --- Figure ---
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.2))
-
-    def panel(ax, fits, info, j1, j2, xlabel, ylabel, title,
-              start_radius_used):
-        starts = np.vstack([f["start"] for f in fits])
-        ends   = np.vstack([f["x"] for f in fits])
-        on_bnd = np.array([f["on_bound"] for f in fits])
-
-        # arrows from each random start to the corresponding converged point.
-        for s, e in zip(starts[~on_bnd], ends[~on_bnd]):
-            ax.annotate(
-                "",
-                xy=(e[j1], e[j2]), xytext=(s[j1], s[j2]),
-                arrowprops=dict(arrowstyle="-", color="0.7", lw=0.4, alpha=0.6),
-                zorder=1,
-            )
-        ax.scatter(starts[:, j1], starts[:, j2], s=14, facecolor="none",
-                   edgecolor="0.45", linewidth=0.6, zorder=2,
-                   label=f"{len(fits)} random starts")
-        if on_bnd.any():
-            ax.scatter(ends[on_bnd, j1], ends[on_bnd, j2],
-                       s=22, marker="x", color="C3", zorder=3,
-                       label="hit bound (filtered)")
-        # converged interior points: jitter so they're slightly visible
-        ends_in = ends[~on_bnd]
-        if len(ends_in) > 0:
-            jitter_rng = np.random.default_rng(0)
-            jit = jitter_rng.normal(scale=0.02, size=ends_in.shape)
-            ax.scatter(ends_in[:, j1] + jit[:, j1], ends_in[:, j2] + jit[:, j2],
-                       s=22, color="C0", alpha=0.7, edgecolor="white",
-                       linewidth=0.4, zorder=4,
-                       label=f"{len(ends_in)} converged fits")
-        if info is not None:
-            ax.scatter(info["centroid"][j1], info["centroid"][j2],
-                       s=260, marker="*", color="C1", edgecolor="black",
-                       linewidth=1.0, zorder=5, label="MLE (centroid)")
-            txt = (rf"max $\|\widehat\theta - \bar{{\widehat\theta}}\|$ "
-                   rf"= ${np.max(np.linalg.norm(info['interior'] - info['centroid'], axis=1)):.1e}$")
-            ax.text(0.02, 0.02, txt, transform=ax.transAxes,
-                    fontsize=8, color="black",
-                    bbox=dict(facecolor="white", edgecolor="0.6", alpha=0.85,
-                              boxstyle="round,pad=0.3"))
-        ax.axhline(0, color="0.92", linewidth=0.8, zorder=0)
-        ax.axvline(0, color="0.92", linewidth=0.8, zorder=0)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.set_title(title)
-        ax.legend(loc="upper right", fontsize=7.5, framealpha=0.9,
-                  handlelength=1.2)
-
     panel(
         axes[0], fits_a, A, 0, 1,
         xlabel=r"$\widehat{a}$", ylabel=r"$\widehat{b}$",
         title=rf"Synthetic single-covariate, $\varepsilon=\delta={EPS:.2f}$, $n=1000$",
-        start_radius_used=10.0,
     )
     panel(
         axes[1], fits_b, B, 1, 2,
         xlabel=r"$\widehat{\beta}_{\mathrm{radius}}$",
         ylabel=r"$\widehat{\beta}_{\mathrm{texture}}$",
         title=rf"Breast cancer (4 predictors), $\varepsilon=\delta={EPS:.2f}$",
-        start_radius_used=5.0,
     )
-
     fig.suptitle(
         "Multi-start verification: bounded L-BFGS-B from random initial points\n"
-        "Every interior run converges to the same stationary point.",
+        "Every interior run converges to the same critical point.",
         fontsize=10,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.93])
 
-    out_pdf = os.path.join(fig_dir, "fig_multistart.pdf")
-    fig.savefig(out_pdf, bbox_inches="tight")
-    print(f"\nSaved figure to {out_pdf}")
+    # save into both the local STK-MAT2011/figures and the report's figures dir
+    out_local = os.path.join(fig_dir, "fig_multistart.pdf")
+    fig.savefig(out_local, bbox_inches="tight")
+    print(f"\nSaved figure to {out_local}")
+
+    if os.path.isdir(os.path.dirname(project_fig_dir)):
+        os.makedirs(project_fig_dir, exist_ok=True)
+        out_proj = os.path.join(project_fig_dir, "fig_multistart.pdf")
+        fig.savefig(out_proj, bbox_inches="tight")
+        print(f"Saved figure to {out_proj}")
+
 
 if __name__ == "__main__":
     main()

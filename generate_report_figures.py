@@ -27,11 +27,18 @@ from sklearn.model_selection import train_test_split
 HERE = Path(__file__).resolve().parent
 sys.path.append(str(HERE))
 from helper_functions.styling import set_latex_plot_style, save_latex_figure
+from helper_functions.corrected_mle import SEED  # 6114, used everywhere
 
 set_latex_plot_style(use_tex=False, figure_size=(6.0, 3.6))
 
-OUT = Path("/sessions/gifted-modest-darwin/mnt/MAT-STK2011-Project/figures")
+# Figures land next to the LaTeX source: ../MAT-STK2011-Project/figures.
+# Falls back to a local figures/ dir if the report directory does not exist
+# (e.g. running the script in isolation).
+PROJECT_FIG_DIR = (HERE.parent / "MAT-STK2011-Project" / "figures").resolve()
+LOCAL_FIG_DIR = (HERE / "figures").resolve()
+OUT = PROJECT_FIG_DIR if PROJECT_FIG_DIR.parent.exists() else LOCAL_FIG_DIR
 OUT.mkdir(parents=True, exist_ok=True)
+print(f"Figures will be saved to: {OUT}")
 
 
 # ========== keep-strip helpers ==========
@@ -188,7 +195,7 @@ SIM_BOUND = 10.0  # the corrected likelihood is flat in beta when c = 1-eps-delt
                   # is small; bound the optimizer so BFGS cannot wander to infinity
                   # and drop replicates that hit the boundary as non-identified.
 
-rng_mc = np.random.default_rng(4242)
+rng_mc = np.random.default_rng(SEED)
 for k, eps in enumerate(EPS_GRID):
     for b in range(B_MC):
         x, y, yh = simulate_ab(N_B, A_TRUE, B_TRUE, eps, eps, rng_mc)
@@ -292,7 +299,7 @@ plt.close()
 
 data = load_breast_cancer()
 X_train, X_test, y_train, y_test = train_test_split(
-    data.data, data.target, test_size=0.3, random_state=0, stratify=data.target
+    data.data, data.target, test_size=171, random_state=SEED, stratify=data.target
 )
 SEL = ['mean radius', 'mean texture', 'mean smoothness', 'mean concave points']
 idx = np.array([list(data.feature_names).index(f) for f in SEL])
@@ -306,7 +313,7 @@ print("clean baseline:", dict(zip(param_names, np.round(ab_clean, 3))))
 
 EPS_C = np.concatenate([np.linspace(0.0, 0.48, 13), np.linspace(0.52, 0.99, 13)])
 B_C = 120
-rng_c = np.random.default_rng(2026)
+rng_c = np.random.default_rng(SEED + 1)
 P = X_tr_z.shape[1] + 1
 
 from scipy.stats import norm
