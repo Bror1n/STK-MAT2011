@@ -196,8 +196,8 @@ rng_design = np.random.default_rng(SEED)
 X = rng_design.standard_normal((n, p))
 p_true_X = H(X @ beta_star)
 
-eps_grid = np.array([0.00, 0.05, 0.10, 0.15, 0.20, 0.25])
-B_mc     = 120    # MC replicates per eps
+eps_grid = np.array([0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30])
+B_mc     = 200    # MC replicates per eps
 
 betas_mc = np.full((len(eps_grid), B_mc, p + 1), np.nan)
 
@@ -294,6 +294,11 @@ code(r"""
 # applied user reads off a single fit, so it is the right thing to compare
 # to the MC sd of beta_hat across replicates.
 
+# Apples-to-apples comparison: both the MC sd and the Hessian-se are
+# computed on exactly the same subset of replicates (the bound-hit ones
+# were already dropped from `betas_mc` upstream, so `mc_sd_mat` and
+# `mean_hess_se` average over the same surviving runs).  We also report
+# the bound-hit fraction so the reader knows what fraction was filtered.
 hess_se_per_rep = np.full_like(betas_mc, np.nan)
 
 for k, eps in enumerate(eps_grid):
@@ -313,21 +318,27 @@ for k, eps in enumerate(eps_grid):
         hess_se_per_rep[k, b] = np.where(diag > 0, np.sqrt(diag), np.nan)
 
 mean_hess_se = np.nanmean(hess_se_per_rep, axis=1)
+bound_hit_frac = 1 - n_conv / B_mc
 
-fig, ax = plt.subplots(figsize=(8, 4.8))
+print("eps    | bound-hit fraction (dropped from both MC sd and mean Hess-se)")
+for k, eps in enumerate(eps_grid):
+    print(f"{eps:>5.2f}  | {bound_hit_frac[k]*100:5.1f}%")
+
+fig, ax = plt.subplots(figsize=(9.5, 4.8))
 for j in range(p):
     sd0 = mc_sd_mat[0, j + 1]
-    ax.plot(eps_grid, mc_sd_mat[:, j + 1] / sd0, "o", color=colors[j])
+    ax.plot(eps_grid, mc_sd_mat[:, j + 1] / sd0, "o", color=colors[j],
+            markersize=5, label=fr"$\beta_{{{j+1}}}^\star={beta_star[j]:.2g}$")
     ax.plot(eps_grid, mean_hess_se[:, j + 1] / sd0, "-", color=colors[j],
             linewidth=1)
-ax.plot([], [], "ko", label="MC sd / clean sd")
-ax.plot([], [], "k-", label="mean Hessian se / clean sd")
+ax.plot([], [], "ko", markersize=5, label="MC sd / clean sd")
+ax.plot([], [], "k-", linewidth=1, label="mean Hessian se / clean sd")
 ax.plot(eps_grid, inv_c, "--", color="C3", linewidth=2,
         label=r"$1/c$ (theory)")
 ax.set_xlabel(r"$\varepsilon$")
 ax.set_ylabel(r"sd or se, normalised to its clean value")
 ax.set_title("Hessian-based se tracks the MC sd across the noise range")
-ax.legend()
+ax.legend(fontsize=7, ncol=2, loc="upper left")
 plt.show()
 """)
 
@@ -335,7 +346,12 @@ md(r"""
 The dots (Monte-Carlo sd, the truth of the estimator's variability) and the
 solid lines (the mean Hessian-based se where the Hessian is evaluated at
 each replicate's own MLE on that replicate's noisy data) overlap across the
-whole range.  This is the proper Hessian-vs-MC comparison: each replicate
+whole range.  Both averages are taken over the *same* set of replicates
+(those whose corrected MLE landed in the interior); the printed bound-hit
+fraction is the share dropped at each $\varepsilon$, and the comparison
+becomes uninformative once that share is large because the surviving
+replicates are no longer a representative slice of the sampling
+distribution.  This is the proper Hessian-vs-MC comparison: each replicate
 gives a Hessian-based se from a single fit, and an applied user reading
 $\sqrt{(\widehat J^{-1})_{jj}}$ off one corrected fit lands on the same
 number on average that the Monte-Carlo experiment would produce by brute
@@ -375,7 +391,11 @@ X_tr = (X_tr - mu) / sd_x
 p_bc = X_tr.shape[1]
 
 eps_grid_bc = np.array([0.00, 0.05, 0.10, 0.15, 0.20])
-B_bc = 80
+B_bc = 200             # bumped from 80 -> 200 to suppress MC noise on
+                       # the breast-cancer sd plot (the n=4 design at
+                       # B=80 had visible non-monotone wobbles that
+                       # tracked sampling noise, not the underlying
+                       # 1/c growth).
 BOUND_BC = 15.0
 n_tr = X_tr.shape[0]
 
@@ -386,6 +406,8 @@ n_tr = X_tr.shape[0]
 # flip it puts the eps=0 sd on the same footing as the eps>0 sd.
 
 betas_bc = np.full((len(eps_grid_bc), B_bc, p_bc + 1), np.nan)
+on_bnd_bc = np.zeros((len(eps_grid_bc), B_bc), dtype=bool)
+naive_fail_bc = 0
 
 for k, eps in enumerate(eps_grid_bc):
     for b in range(B_bc):
@@ -399,21 +421,28 @@ for k, eps in enumerate(eps_grid_bc):
             naive = sm.GLM(yh, Xd, family=sm.families.Binomial()).fit(disp=0)
             start = np.asarray(naive.params)
         except Exception:
-            continue
+            naive_fail_bc += 1
+            start = np.zeros(p_bc + 1)
         res = fit_corr(Xb, yh, eps, eps, start, bound=BOUND_BC)
         if np.max(np.abs(res.x)) >= BOUND_BC - 0.1:
+            on_bnd_bc[k, b] = True
             continue
         betas_bc[k, b] = res.x
 
 mc_sd_bc = np.nanstd(betas_bc, axis=1, ddof=1)
 mc_mean_bc = np.nanmean(betas_bc, axis=1)
 n_conv_bc = np.sum(~np.isnan(betas_bc[:, :, 0]), axis=1)
+hit_frac_bc = on_bnd_bc.mean(axis=1)
 
-print(f"{'eps':>5} | {'#conv':>6} | "
+print(f"naive GLM failures (zero-start fallback): "
+      f"{naive_fail_bc} / {len(eps_grid_bc) * B_bc}")
+print()
+print(f"{'eps':>5} | {'#conv':>6} | {'hit %':>6} | "
       + "  ".join(f"sd({nm[:8]:<8})" for nm in ["intercept"] + keep))
 for k, eps in enumerate(eps_grid_bc):
     sd_row = "  ".join(f"{mc_sd_bc[k, j]:8.3f}" for j in range(p_bc + 1))
-    print(f"{eps:>5.2f} | {n_conv_bc[k]:>6d} | {sd_row}")
+    print(f"{eps:>5.2f} | {n_conv_bc[k]:>6d} | "
+          f"{hit_frac_bc[k]*100:>5.1f}% | {sd_row}")
 """)
 
 code(r"""
@@ -445,7 +474,8 @@ axes[1].legend(fontsize=8)
 
 fig.suptitle(
     rf"Breast cancer training set, $n={X_tr.shape[0]}$, "
-    rf"$B={B_bc}$ flips per $\varepsilon$"
+    rf"$B={B_bc}$ bootstrap+flip replicates per $\varepsilon$ "
+    "(interior fits only)"
 )
 fig.tight_layout()
 plt.show()

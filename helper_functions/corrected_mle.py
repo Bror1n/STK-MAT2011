@@ -89,19 +89,41 @@ def numeric_hess(theta, Xd, yh, eps, delta, h: float = 1e-4):
     return Hm
 
 
-def hessian_se(theta, X, yh, eps, delta):
+def hessian_se(theta, X, yh, eps, delta, on_bound=None):
     """Hessian-based standard errors at theta.
 
-    Returns sqrt(diag(J^{-1})) or NaN where J is singular / non-PD.
+    By default returns sqrt(diag(J^{-1})) where J = -Hess(loglik).  When
+    ``on_bound`` is supplied (length-len(theta) bool array marking
+    coordinates pinned at the L-BFGS-B bound), we instead return the
+    asymptotic se for the *unbounded* coordinates, computed as the
+    inverse of the Hessian's submatrix on those coordinates.  The
+    bound-hit coordinates' entries are NaN.
+
+    Why this matters: at a constrained optimum the right object for
+    inference on the free coordinates is the Hessian's restriction to
+    the unbounded subspace, not the diagonal of the full inverse, since
+    the latter accounts for "phantom" variability in the pinned
+    coordinate that is not present at a constrained optimum.
     """
     Xd = sm.add_constant(X, has_constant="add")
     J = numeric_hess(theta, Xd, yh, eps, delta)
+    p = len(theta)
+    if on_bound is None:
+        free = np.ones(p, dtype=bool)
+    else:
+        free = ~np.asarray(on_bound, dtype=bool)
+    se = np.full(p, np.nan)
+    if not np.any(free):
+        return se
+    J_sub = J[np.ix_(free, free)]
     try:
-        cov = np.linalg.inv(J)
+        cov_sub = np.linalg.inv(J_sub)
     except np.linalg.LinAlgError:
-        return np.full(len(theta), np.nan)
-    diag = np.diag(cov)
-    return np.where(diag > 0, np.sqrt(diag), np.nan)
+        return se
+    diag_sub = np.diag(cov_sub)
+    se_sub = np.where(diag_sub > 0, np.sqrt(diag_sub), np.nan)
+    se[free] = se_sub
+    return se
 
 
 # ---------------------------------------------------------------------------

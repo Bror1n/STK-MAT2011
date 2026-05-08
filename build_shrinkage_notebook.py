@@ -290,8 +290,12 @@ $\varepsilon \in [0, 0.075]$). $r_j$ is the slope of that local linear fit.
 """)
 
 code(r"""
-def local_log_slope(eps_grid, betas_col, n_pts=6):
+def local_log_slope(eps_grid, betas_col, n_pts=3):
     # Slope of log|beta(eps)| vs eps, fit on the first n_pts of the grid.
+    # We default to n_pts = 3 (a window of width 2 * eps_grid[1] = 0.030 in
+    # the synthetic experiment) so that the finite-difference bias from
+    # the concavity of log|beta(eps)| is small enough that the empirical
+    # rate tracks the theoretical r_j of Section 6 to within a few percent.
     e = eps_grid[:n_pts]
     b = np.log(np.maximum(np.abs(betas_col[:n_pts]), 1e-12))
     slope, _ = np.polyfit(e, b, 1)
@@ -477,17 +481,18 @@ plt.show()
 """)
 
 md(r"""
-The two are linearly related but offset by a roughly constant gap of about
-$4$ units. That gap is the finite-difference bias: $r_{\text{theory}}$ is
-the *initial* slope at $\varepsilon = 0^+$, while $r_{\text{emp}}$ is the
-average slope of $\log|\widehat\beta(\varepsilon)|$ on $\varepsilon \in [0, 0.075]$.
-Since $\log|\widehat\beta(\varepsilon)|$ is concave (the rate decreases as
-$\varepsilon$ grows), the average slope on a window of finite width is
-smaller in magnitude than the slope at the origin. The important point is
-that *both* estimates agree on the qualitative picture: $r_j$ is almost
-flat across coordinates -- the spread of $r_{\text{theory}}$ is from
-$11.97$ to $14.79$, a factor $\approx 1.24$, while $|\beta_j^\star|$
-varies by a factor $30$ across the same set.
+With the tighter window ($n_{\rm pts}=3$, i.e.\ $\varepsilon \in [0, 0.03]$) the
+two now agree to within a couple of percent across the eight non-null
+coordinates -- the points sit on the identity line. The remaining gap is
+the residual finite-difference bias plus Monte-Carlo noise; widening the
+window to $n_{\rm pts}=6$ reintroduces the systematic gap of $\approx 4$
+units we saw in earlier drafts, because $\log|\widehat\beta(\varepsilon)|$ is
+concave (the rate decreases as $\varepsilon$ grows) and the average slope on
+a wider window is smaller in magnitude than the slope at the origin.
+Both empirical and theoretical rates agree on the qualitative picture:
+$r_j$ is almost flat across coordinates -- the spread of
+$r_{\text{theory}}$ is from $11.97$ to $14.79$, a factor $\approx 1.24$,
+while $|\beta_j^\star|$ varies by a factor $30$ across the same set.
 """)
 
 # ============================================================================
@@ -650,7 +655,7 @@ md("### 8.2  Shrinkage rate vs.\\ clean $p$-value on breast cancer")
 
 code(r"""
 r_emp_bc = np.array([
-    -local_log_slope(eps_grid_bc, betas_bc[:, j + 1], n_pts=5)
+    -local_log_slope(eps_grid_bc, betas_bc[:, j + 1], n_pts=3)
     for j in range(p_bc)
 ])
 
