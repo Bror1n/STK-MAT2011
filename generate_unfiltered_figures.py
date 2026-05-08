@@ -26,11 +26,11 @@ data, set a cutoff on the plot, but keep the standard-deviation region
 fully visible.
 
 Outputs (saved to MAT-STK2011-Project/figures/):
-    fig_sim_corrected_unfiltered.pdf
-    fig_sim_sd_growth_unfiltered.pdf
-    fig_breast_paths_unfiltered.pdf
-    fig_breast_overlay_unfiltered.pdf
-    fig_breast_pvalues_unfiltered.pdf
+    fig_sim_corrected.pdf
+    fig_sim_sd_growth.pdf
+    fig_breast_paths.pdf
+    fig_breast_overlay.pdf
+    fig_breast_pvalues.pdf
 
 Reproducibility: SEED = 6114 from helper_functions.corrected_mle.
 """
@@ -48,9 +48,12 @@ from scipy.stats import norm
 from helper_functions.corrected_mle import (
     SEED, H, fit_naive, fit_corr, hessian_se, flip_labels,
 )
+from helper_functions.styling import set_latex_plot_style
 
 import warnings
 warnings.filterwarnings("ignore")
+
+set_latex_plot_style(use_tex=False, figure_size=(6.0, 3.6))
 
 HERE = Path(__file__).resolve().parent
 PROJ_FIG = (HERE.parent / "MAT-STK2011-Project" / "figures").resolve()
@@ -208,7 +211,7 @@ ylo, yhi = yax_for_band(mu_a, sd_a, pad_frac=0.04)
 axes[0].set_ylim(ylo, yhi)
 axes[0].set_xlabel(r"$\varepsilon = \delta$")
 axes[0].set_ylabel(r"$\widehat a$")
-axes[0].set_title("Corrected MLE intercept (no filter)")
+axes[0].set_title("Corrected MLE intercept")
 axes[0].legend(fontsize=8, loc="lower left")
 
 plot_band(axes[1], EPS_GRID, corr_b, on_bound_b, bound=SIM_BOUND,
@@ -222,16 +225,16 @@ ylo, yhi = yax_for_band(mu_b, sd_b, pad_frac=0.04)
 axes[1].set_ylim(ylo, yhi)
 axes[1].set_xlabel(r"$\varepsilon = \delta$")
 axes[1].set_ylabel(r"$\widehat b$")
-axes[1].set_title("Corrected MLE slope (no filter)")
+axes[1].set_title("Corrected MLE slope")
 axes[1].legend(fontsize=8, loc="lower left")
 
 fig.suptitle(
-    "Corrected MLE without bound-hit filter: every replicate kept; mean +/- sd "
-    "computed over all of them",
+    "Corrected MLE: dots show every replicate; band shows MC mean $\\pm$ sd "
+    "across all replicates",
     fontsize=10,
 )
 fig.tight_layout()
-fig.savefig(OUT / "fig_sim_corrected_unfiltered.pdf", bbox_inches="tight")
+fig.savefig(OUT / "fig_sim_corrected.pdf", bbox_inches="tight")
 plt.close(fig)
 
 
@@ -270,7 +273,7 @@ axes[1].set_ylim(-0.02, 1.02)
 axes[1].legend(fontsize=8)
 
 fig.tight_layout()
-fig.savefig(OUT / "fig_sim_sd_growth_unfiltered.pdf", bbox_inches="tight")
+fig.savefig(OUT / "fig_sim_sd_growth.pdf", bbox_inches="tight")
 plt.close(fig)
 
 
@@ -390,7 +393,7 @@ fig.suptitle(
     fontsize=11,
 )
 fig.tight_layout(rect=[0, 0, 1, 0.96])
-fig.savefig(OUT / "fig_breast_paths_unfiltered.pdf", bbox_inches="tight")
+fig.savefig(OUT / "fig_breast_paths.pdf", bbox_inches="tight")
 plt.close(fig)
 
 
@@ -420,10 +423,10 @@ ax.set_ylim(ylo, yhi)
 ax.set_xlabel(r"$\varepsilon = \delta$")
 ax.set_ylabel("coefficient on mean concave points")
 ax.set_title("Naive vs corrected on mean concave points "
-             "(no filter, breast-cancer data)")
+             "(breast-cancer data)")
 ax.legend(fontsize=8, loc="upper right")
 fig.tight_layout()
-fig.savefig(OUT / "fig_breast_overlay_unfiltered.pdf", bbox_inches="tight")
+fig.savefig(OUT / "fig_breast_overlay.pdf", bbox_inches="tight")
 plt.close(fig)
 
 
@@ -457,9 +460,9 @@ ax_p.set_title("Wald $p$-values on the breast-cancer corrected MLE -- "
 ax_p.legend(fontsize=8, loc="lower center", ncol=3)
 
 fig.tight_layout()
-fig.savefig(OUT / "fig_breast_pvalues_unfiltered.pdf", bbox_inches="tight")
+fig.savefig(OUT / "fig_breast_pvalues.pdf", bbox_inches="tight")
 plt.close(fig)
 
-print("\nAll unfiltered figures saved.")
-for f in OUT.glob("*_unfiltered.pdf"):
+print("\nAll figures saved.")
+for f in OUT.glob("fig_*.pdf"):
     print(f"  {f.name}  ({f.stat().st_size} bytes)")

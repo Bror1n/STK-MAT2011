@@ -32,8 +32,11 @@ from sklearn.model_selection import train_test_split
 from helper_functions.corrected_mle import (
     SEED, H, fit_corr, flip_labels,
 )
+from helper_functions.styling import set_latex_plot_style
 
 warnings.filterwarnings("ignore")
+
+set_latex_plot_style(use_tex=False, figure_size=(6.0, 3.6))
 
 
 # ----- experiment constants ---------------------------------------------------

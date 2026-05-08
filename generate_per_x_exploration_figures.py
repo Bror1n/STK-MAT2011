@@ -27,6 +27,9 @@ import numpy as np
 from helper_functions.corrected_mle import (
     SEED, H, fit_naive, fit_corr,
 )
+from helper_functions.styling import set_latex_plot_style
+
+set_latex_plot_style(use_tex=False, figure_size=(6.0, 3.6))
 
 
 # Output destinations: STK-MAT2011/figures/ + MAT-STK2011-Project/figures/
@@ -50,6 +53,19 @@ rng_design = np.random.default_rng(SEED)
 X_E = rng_design.standard_normal((N_E, len(BETA_STAR_E)))
 P_TRUE_E = H(ALPHA_STAR_E + X_E @ BETA_STAR_E)
 DEL_CONST_E = np.full(N_E, 0.05)
+
+
+def save(fig, name: str) -> None:
+    """Save a figure to BOTH the local STK-MAT2011/figures and the report's
+    figures directory; print where each one went.
+    """
+    out_local = OUT_LOCAL / name
+    fig.savefig(out_local, bbox_inches="tight")
+    print(f"  wrote {out_local}")
+    if OUT_PROJECT.parent.exists():
+        out_proj = OUT_PROJECT / name
+        fig.savefig(out_proj, bbox_inches="tight")
+        print(f"  wrote {out_proj}")
 
 
 def calibrate_gamma0(gamma1: float, x_drive: np.ndarray,
@@ -270,7 +286,144 @@ def make_identification_figure() -> None:
     plt.close(fig)
 
 
+# =======================================================================
+# Figure 3: fig_per_x_synth.pdf -- four estimators on the synthetic
+# borrower setup (single MC realisation), the figure used in Section 7.2
+# of the report.
+# =======================================================================
+def make_per_x_synth_figure() -> None:
+    import statsmodels.api as sm
+    from helper_functions.corrected_mle import numeric_hess
+
+    rng = np.random.default_rng(SEED)
+    X = X_E.copy()
+    p_true = P_TRUE_E.copy()
+    eps_vec = H(-2.0 + 0.8 * X[:, 2])
+    del_vec = np.full(N_E, 0.05)
+
+    y_true = rng.binomial(1, p_true)
+    flip1 = (y_true == 1) & (rng.uniform(size=N_E) < eps_vec)
+    flip0 = (y_true == 0) & (rng.uniform(size=N_E) < del_vec)
+    y_obs = y_true.copy(); y_obs[flip1] = 0; y_obs[flip0] = 1
+
+    clean_p, clean_se, _ = fit_naive(X, y_true)
+    naive_p, naive_se, _ = fit_naive(X, y_obs)
+    eps_const = np.full(N_E, eps_vec.mean())
+    res_const = fit_corr(X, y_obs, eps_const, del_vec, naive_p.copy())
+    res_full  = fit_corr(X, y_obs, eps_vec,  del_vec, naive_p.copy())
+
+    Xd = sm.add_constant(X, has_constant="add")
+    J_full  = numeric_hess(res_full.x,  Xd, y_obs, eps_vec,   del_vec)
+    J_const = numeric_hess(res_const.x, Xd, y_obs, eps_const, del_vec)
+    full_se  = np.sqrt(np.maximum(np.diag(np.linalg.inv(J_full)),  0.0))
+    const_se = np.sqrt(np.maximum(np.diag(np.linalg.inv(J_const)), 0.0))
+
+    names = ["intercept", r"$\beta_1$", r"$\beta_2$", r"$\beta_3$", r"$\beta_4$"]
+    truth = np.r_[-1.0, BETA_STAR_E]
+    estimates = np.vstack([clean_p, naive_p, res_const.x, res_full.x])
+    ses       = np.vstack([clean_se, naive_se, const_se, full_se])
+
+    fig, ax = plt.subplots(figsize=(8.5, 4.2))
+    x_pos = np.arange(len(names))
+    width = 0.18
+    colors = ["#2ca02c", "#d62728", "#ff7f0e", "#1f77b4"]
+    labels = ["clean", "naive",
+              r"corrected, const $\bar\varepsilon$",
+              r"corrected, per-$i$ $\varepsilon_i$"]
+    for k, lab in enumerate(labels):
+        ax.errorbar(x_pos + (k - 1.5) * width,
+                    estimates[k], yerr=1.96 * ses[k],
+                    fmt="o", capsize=3, color=colors[k], label=lab)
+    ax.scatter(x_pos, truth, marker="*", s=160, color="black",
+               zorder=5, label=r"true $\beta^\star$")
+    ax.axhline(0, color="0.85", lw=0.8)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(names)
+    ax.set_ylabel(r"coefficient ($95\%$ Wald CI)")
+    ax.set_title("Four estimators on the same noisy borrower data")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    save(fig, "fig_per_x_synth.pdf")
+    plt.close(fig)
+
+
+# =======================================================================
+# Figure 4: fig_per_x_credit.pdf -- the same four-fits comparison on
+# the German Credit dataset.
+# =======================================================================
+def make_per_x_credit_figure() -> None:
+    import statsmodels.api as sm
+    from sklearn.datasets import fetch_openml
+    from helper_functions.corrected_mle import numeric_hess
+
+    data = fetch_openml(data_id=31, as_frame=True)
+    df = data.data
+    y_str = data.target
+
+    numeric_cols = ["duration", "credit_amount", "installment_commitment",
+                    "residence_since", "age", "existing_credits", "num_dependents"]
+    X_df = df[numeric_cols].astype(float)
+    y_clean = (y_str == "bad").astype(int).to_numpy()
+
+    mu = X_df.mean(); sd_x = X_df.std(ddof=1)
+    X_std = ((X_df - mu) / sd_x).to_numpy()
+    n = len(y_clean)
+
+    duration_z = X_std[:, numeric_cols.index("duration")]
+    eps_vec = 0.02 + 0.20 * H(duration_z)
+    del_vec = np.full(n, 0.05)
+
+    rng = np.random.default_rng(SEED + 11)
+    flip1 = (y_clean == 1) & (rng.uniform(size=n) < eps_vec)
+    flip0 = (y_clean == 0) & (rng.uniform(size=n) < del_vec)
+    y_obs = y_clean.copy(); y_obs[flip1] = 0; y_obs[flip0] = 1
+
+    clean_p, clean_se, _ = fit_naive(X_std, y_clean)
+    naive_p, naive_se, _ = fit_naive(X_std, y_obs)
+    eps_const = np.full(n, eps_vec.mean())
+    res_const = fit_corr(X_std, y_obs, eps_const, del_vec, naive_p.copy())
+    res_full  = fit_corr(X_std, y_obs, eps_vec,  del_vec, naive_p.copy())
+
+    Xd = sm.add_constant(X_std, has_constant="add")
+    J_full  = numeric_hess(res_full.x,  Xd, y_obs, eps_vec,   del_vec)
+    J_const = numeric_hess(res_const.x, Xd, y_obs, eps_const, del_vec)
+    full_se  = np.sqrt(np.maximum(np.diag(np.linalg.inv(J_full)),  0.0))
+    const_se = np.sqrt(np.maximum(np.diag(np.linalg.inv(J_const)), 0.0))
+
+    names = ["intercept"] + numeric_cols
+    estimates = np.vstack([clean_p, naive_p, res_const.x, res_full.x])
+    ses       = np.vstack([clean_se, naive_se, const_se, full_se])
+
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    x_pos = np.arange(len(names))
+    width = 0.20
+    colors = ["#2ca02c", "#d62728", "#ff7f0e", "#1f77b4"]
+    labels = ["clean (gold)", "naive on noisy",
+              r"corrected (const $\bar\varepsilon$)",
+              r"corrected (per-$i$ $\varepsilon_i$)"]
+    for k, lab in enumerate(labels):
+        ax.errorbar(x_pos + (k - 1.5) * width,
+                    estimates[k], yerr=1.96 * ses[k],
+                    fmt="o", capsize=3, color=colors[k], label=lab)
+    ax.axhline(0, color="0.85", lw=0.8)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(names, rotation=30, ha="right")
+    ax.set_ylabel(r"coefficient ($95\%$ Wald CI)")
+    ax.set_title("German Credit: corrected MLE vs.\\ naive under "
+                 "duration-dependent label noise")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    save(fig, "fig_per_x_credit.pdf")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
+    print("Generating fig_per_x_synth.pdf ...")
+    make_per_x_synth_figure()
+    print()
+    print("Generating fig_per_x_credit.pdf ...")
+    make_per_x_credit_figure()
+    print()
     print("Generating fig_per_x_spread.pdf ...")
     make_spread_figure()
     print()
