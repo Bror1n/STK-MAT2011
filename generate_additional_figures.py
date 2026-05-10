@@ -110,28 +110,17 @@ def make_nocov_sd_figure() -> None:
     c_grid = 1.0 - 2 * eps_grid
     sd_theory = np.sqrt(p_star * (1.0 - p_star)) / (np.abs(c_grid) * np.sqrt(n))
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
-    axes[0].plot(eps_grid, sd_emp, "o", color="#1f77b4", markersize=4,
-                 label=r"MC sd of $\widehat p$")
-    axes[0].plot(eps_grid, sd_theory, "-", color="#ff7f0e",
-                 label=r"$\sqrt{p^*(1-p^*)} \,/\, (|c|\sqrt{n})$")
-    axes[0].set_xlabel(r"$\varepsilon = \delta$")
-    axes[0].set_ylabel(r"sd of $\widehat p$")
-    axes[0].set_title(r"No covariate: sd grows like $1/|c|$")
-    axes[0].legend(fontsize=9)
-
-    axes[1].semilogy(eps_grid, sd_emp, "o", color="#1f77b4", markersize=4,
-                     label="MC sd")
-    axes[1].semilogy(eps_grid, sd_theory, "-", color="#ff7f0e",
-                     label="theory")
-    axes[1].set_xlabel(r"$\varepsilon = \delta$")
-    axes[1].set_ylabel(r"sd of $\widehat p$ (log scale)")
-    axes[1].set_title("Same plot, log $y$-axis")
-    axes[1].legend(fontsize=9)
-
-    fig.suptitle(rf"No-covariate sd validation: $p = {p_true}$, $n = {n}$, "
-                 f"$B = {B}$ replicates per $\\varepsilon$", fontsize=10)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig, ax = plt.subplots(figsize=(6.4, 4.0))
+    ax.plot(eps_grid, sd_emp, "o", color="#1f77b4", markersize=4,
+            label=r"MC sd of $\widehat p$")
+    ax.plot(eps_grid, sd_theory, "-", color="#ff7f0e",
+            label=r"closed form $\sqrt{p^*(1-p^*)} \,/\, (|c|\sqrt{n})$")
+    ax.set_xlabel(r"$\varepsilon = \delta$")
+    ax.set_ylabel(r"sd of $\widehat p$")
+    ax.set_title(rf"No-covariate sd: $p = {p_true}$, $n = {n}$, "
+                 rf"$B = {B}$ replicates per $\varepsilon$")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
     save(fig, "fig_nocov_sd.pdf")
     plt.close(fig)
 
