@@ -134,54 +134,37 @@ def make_spread_figure() -> None:
     J_DRIVE = 3
     J_NONDRIVE = 1
 
-    # 2 x 2 figure: top row = bias, bottom row = sd
-    fig, axes = plt.subplots(2, 2, figsize=(12, 7), sharex=True)
+    # 1 x 2 figure: MC sd of beta_hat as a function of sd(eps_i)
+    # for the noise-driving coordinate (left) and a non-driving one (right).
+    # The bias panels were dropped: the bias story is already shown in
+    # fig_per_x_synth (Fig 10) and fig_per_x_credit (Fig 11).
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
 
-    # Top-left: bias of beta_3 (drives noise)
-    ax = axes[0, 0]
-    ax.plot(sd_eps_grid, bias_naive[:, J_DRIVE], "o-", color="#d62728",
+    ax = axes[0]
+    ax.plot(sd_eps_grid, sd_naive[:, J_DRIVE], "o-", color="#d62728",
             label="naive")
-    ax.plot(sd_eps_grid, bias_const[:, J_DRIVE], "o-", color="#ff7f0e",
+    ax.plot(sd_eps_grid, sd_const[:, J_DRIVE], "o-", color="#ff7f0e",
             label=r"corrected, const $\bar\varepsilon$")
-    ax.plot(sd_eps_grid, bias_full[:, J_DRIVE], "o-", color="#1f77b4",
+    ax.plot(sd_eps_grid, sd_full[:, J_DRIVE],  "o-", color="#1f77b4",
             label=r"corrected, per-$i$ $\varepsilon_i$")
-    ax.axhline(0, color="0.85", lw=0.8)
-    ax.set_ylabel(r"mean bias of $\widehat\beta_3$")
-    ax.set_title(r"$\beta_3^\star = 0.6$ (drives $\varepsilon_i$)")
-    ax.legend(fontsize=8, loc="upper right")
-
-    # Top-right: bias of beta_1 (does not drive noise)
-    ax = axes[0, 1]
-    ax.plot(sd_eps_grid, bias_naive[:, J_NONDRIVE], "o-", color="#d62728",
-            label="naive")
-    ax.plot(sd_eps_grid, bias_const[:, J_NONDRIVE], "o-", color="#ff7f0e",
-            label=r"corrected, const $\bar\varepsilon$")
-    ax.plot(sd_eps_grid, bias_full[:, J_NONDRIVE], "o-", color="#1f77b4",
-            label=r"corrected, per-$i$ $\varepsilon_i$")
-    ax.axhline(0, color="0.85", lw=0.8)
-    ax.set_ylabel(r"mean bias of $\widehat\beta_1$")
-    ax.set_title(r"$\beta_1^\star = -1.5$ (does not drive $\varepsilon_i$)")
-
-    # Bottom-left: sd of beta_3
-    ax = axes[1, 0]
-    ax.plot(sd_eps_grid, sd_naive[:, J_DRIVE], "o-", color="#d62728")
-    ax.plot(sd_eps_grid, sd_const[:, J_DRIVE], "o-", color="#ff7f0e")
-    ax.plot(sd_eps_grid, sd_full[:, J_DRIVE],  "o-", color="#1f77b4")
     ax.set_xlabel(r"sd of $\varepsilon_i$ across observations")
     ax.set_ylabel(r"MC sd of $\widehat\beta_3$")
+    ax.set_title(r"$\beta_3^\star = 0.6$ (drives $\varepsilon_i$)")
+    ax.legend(fontsize=8, loc="lower right")
 
-    # Bottom-right: sd of beta_1
-    ax = axes[1, 1]
+    ax = axes[1]
     ax.plot(sd_eps_grid, sd_naive[:, J_NONDRIVE], "o-", color="#d62728")
     ax.plot(sd_eps_grid, sd_const[:, J_NONDRIVE], "o-", color="#ff7f0e")
-    ax.plot(sd_eps_grid, sd_full[:, J_NONDRIVE],  "o-", color="#1f77b4")
+    ax.plot(sd_eps_grid, sd_full[:, J_NONDRIVE], "o-", color="#1f77b4")
     ax.set_xlabel(r"sd of $\varepsilon_i$ across observations")
     ax.set_ylabel(r"MC sd of $\widehat\beta_1$")
+    ax.set_title(r"$\beta_1^\star = -1.5$ (does not drive $\varepsilon_i$)")
 
     fig.suptitle(
-        r"Spread of $\varepsilon_i$ vs. bias (top) and sd (bottom) of $\widehat\beta$.  "
-        r"$\mathbb{E}\varepsilon_i \equiv 0.15$ held fixed.", fontsize=11)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+        r"MC standard deviation of $\widehat\beta$ vs. spread of $\varepsilon_i$, "
+        r"with $\mathbb{E}\varepsilon_i \equiv 0.15$ held fixed.",
+        fontsize=10)
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
 
     out_local = OUT_LOCAL / "fig_per_x_spread.pdf"
     fig.savefig(out_local, bbox_inches="tight")
