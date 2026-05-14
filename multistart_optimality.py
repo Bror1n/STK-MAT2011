@@ -214,10 +214,10 @@ def main():
     C = summarize(f"breast cancer eps={EPS_MOD:.2f}", fits_c)
 
     # --- Figure: three panels ---
-    fig, axes = plt.subplots(1, 3, figsize=(15.5, 5.2))
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 6.5))
     panel(
         axes[0], fits_a, A, 0, 1,
-        xlabel=r"$\widehat{a}$", ylabel=r"$\widehat{b}$",
+        xlabel=r"$\widehat{\beta}_0$", ylabel=r"$\widehat{\beta}_1$",
         title=rf"Synthetic single-covariate, $\varepsilon=\delta={EPS:.2f}$, $n=1000$",
     )
     panel(

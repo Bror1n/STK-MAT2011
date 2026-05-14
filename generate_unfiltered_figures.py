@@ -204,27 +204,27 @@ fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
 plot_band(axes[0], EPS_GRID, corr_a, on_bound_a, bound=SIM_BOUND,
           color="C0", label="MC mean +/- sd")
 axes[0].axhline(A_TRUE, color="black", linestyle=":", linewidth=0.9,
-                label=f"$a = {A_TRUE}$")
+                label=fr"$\beta_0 = {A_TRUE}$")
 axes[0].axvline(0.5, color="C3", linestyle="--", linewidth=0.8, alpha=0.6)
 mu_a, sd_a = mean_sd(corr_a)
 ylo, yhi = yax_for_band(mu_a, sd_a, pad_frac=0.04)
 axes[0].set_ylim(ylo, yhi)
 axes[0].set_xlabel(r"$\varepsilon = \delta$")
-axes[0].set_ylabel(r"$\widehat a$")
+axes[0].set_ylabel(r"$\widehat{\beta}_0$")
 axes[0].set_title("Corrected MLE intercept")
 axes[0].legend(fontsize=8, loc="lower left")
 
 plot_band(axes[1], EPS_GRID, corr_b, on_bound_b, bound=SIM_BOUND,
           color="C1", label="MC mean +/- sd")
 axes[1].axhline(B_TRUE, color="black", linestyle=":", linewidth=0.9,
-                label=f"$b = {B_TRUE}$")
+                label=fr"$\beta_1 = {B_TRUE}$")
 axes[1].axhline(-B_TRUE, color="black", linestyle=":", linewidth=0.9, alpha=0.4)
 axes[1].axvline(0.5, color="C3", linestyle="--", linewidth=0.8, alpha=0.6)
 mu_b, sd_b = mean_sd(corr_b)
 ylo, yhi = yax_for_band(mu_b, sd_b, pad_frac=0.04)
 axes[1].set_ylim(ylo, yhi)
 axes[1].set_xlabel(r"$\varepsilon = \delta$")
-axes[1].set_ylabel(r"$\widehat b$")
+axes[1].set_ylabel(r"$\widehat{\beta}_1$")
 axes[1].set_title("Corrected MLE slope")
 axes[1].legend(fontsize=8, loc="lower left")
 
@@ -246,13 +246,13 @@ mean_se_b_int = np.nanmean(corr_b_se, axis=1)
 
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
 axes[0].plot(EPS_GRID, mc_sd_a, "o-", color="C0", markersize=3.5,
-             label=r"sd of $\widehat a$ (MC, all reps)")
+             label=r"sd of $\widehat{\beta}_0$ (MC, all reps)")
 axes[0].plot(EPS_GRID, mc_sd_b, "o-", color="C1", markersize=3.5,
-             label=r"sd of $\widehat b$ (MC, all reps)")
+             label=r"sd of $\widehat{\beta}_1$ (MC, all reps)")
 axes[0].plot(EPS_GRID, mean_se_a_int, "s--", color="C0", alpha=0.7,
-             markersize=3.0, label=r"mean Hessian se of $\widehat a$ (interior only)")
+             markersize=3.0, label=r"mean Hessian se of $\widehat{\beta}_0$ (interior only)")
 axes[0].plot(EPS_GRID, mean_se_b_int, "s--", color="C1", alpha=0.7,
-             markersize=3.0, label=r"mean Hessian se of $\widehat b$ (interior only)")
+             markersize=3.0, label=r"mean Hessian se of $\widehat{\beta}_1$ (interior only)")
 axes[0].set_yscale("log")
 axes[0].set_xlabel(r"$\varepsilon = \delta$")
 axes[0].set_ylabel("sd / se (log scale)")
@@ -261,9 +261,9 @@ axes[0].axvline(0.5, color="C3", linestyle="--", linewidth=0.8, alpha=0.6)
 axes[0].legend(fontsize=7, loc="lower left")
 
 axes[1].plot(EPS_GRID, hit_frac_a, "o-", color="C0", markersize=3.5,
-             label=r"$\widehat a$ at bound")
+             label=r"$\widehat{\beta}_0$ at bound")
 axes[1].plot(EPS_GRID, hit_frac_b, "o-", color="C1", markersize=3.5,
-             label=r"$\widehat b$ at bound")
+             label=r"$\widehat{\beta}_1$ at bound")
 axes[1].axhline(0, color="0.85", linewidth=0.5)
 axes[1].set_xlabel(r"$\varepsilon = \delta$")
 axes[1].set_ylabel("fraction at bound")
